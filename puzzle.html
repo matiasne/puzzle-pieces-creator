@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      #container {
+        display: flex;
+        gap: 40px;
+        align-items: flex-start;
+      }
+      table {
+        border-collapse: collapse;
+      }
+      td {
+        width: 60px;
+        height: 60px;
+        box-sizing: border-box;
+        text-align: center;
+        vertical-align: middle;
+        border: 1px solid #333;
+        font-family: sans-serif;
+        font-size: 14px;
+        background: #e0f0ff;
+        border-radius: 8px;
+        padding: 0;
+        position: relative;
+      }
+      .parent {
+        background: #b3d9ff;
+        border: 2px solid #0059b3;
+        border-radius: 8px;
+        z-index: 1;
+        position: relative;
+      }
+      .tree-view {
+        font-family: monospace;
+        font-size: 15px;
+        line-height: 1.5;
+        white-space: pre;
+        background: #f8f8f8;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 16px;
+        min-width: 250px;
+        max-width: 400px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <div id="matrix"></div>
+      <div id="tree"></div>
+    </div>
+    <script>
+      // Random tree generator
+      function generateRandomTree(n, maxChildren = 8) {
+        if (n < 1) return null;
+        const nodes = [];
+        nodes.push({ name: "Node 1", children: [] });
+        for (let i = 2; i <= n; i++) {
+          let parentIndex;
+          do {
+            parentIndex = Math.floor(Math.random() * nodes.length);
+          } while (
+            nodes[parentIndex].children.length >= maxChildren &&
+            nodes.some((node) => node.children.length < maxChildren)
+          );
+          const newNode = { name: "Node " + i, children: [] };
+          nodes.push(newNode);
+          nodes[parentIndex].children.push(newNode);
+        }
+        return nodes[0];
+      }
+
+      // Find the minimum square size so that all children can be placed on the edge
+      function minSquareSizeForChildren(n) {
+        let k = 1;
+        while (4 * k < n) k++;
+        return k + 1;
+      }
+
+      // Place a node and its children in the grid, only as blue squares
+      function placeNode(node, grid, row, col, size, placed) {
+        // Place the node in the entire square
+        for (let r = 0; r < size; r++) {
+          for (let c2 = 0; c2 < size; c2++) {
+            const gr = row + r,
+              gc = col + c2;
+            grid[gr] = grid[gr] || [];
+            grid[gr][gc] = { name: node.name, className: "parent" };
+          }
+        }
+        placed.set(node, { row, col, size });
+
+        // Place children recursively, adjacent to the parent square
+        const n = node.children.length;
+        if (n === 0) return;
+
+        // Collect all possible edge positions around the parent square
+        let edgePositions = [];
+        // Top edge (left to right)
+        for (let c2 = 0; c2 < size; c2++)
+          edgePositions.push([row - 1, col + c2, "top"]);
+        // Right edge (top to bottom)
+        for (let r2 = 0; r2 < size; r2++)
+          edgePositions.push([row + r2, col + size, "right"]);
+        // Bottom edge (right to left)
+        for (let c2 = size - 1; c2 >= 0; c2--)
+          edgePositions.push([row + size, col + c2, "bottom"]);
+        // Left edge (bottom to top)
+        for (let r2 = size - 1; r2 >= 0; r2--)
+          edgePositions.push([row + r2, col - 1, "left"]);
+
+        let used = new Set();
+        for (let i = 0; i < n; i++) {
+          const child = node.children[i];
+          let childSize = 1;
+          if (child.children.length > 0) {
+            childSize = minSquareSizeForChildren(child.children.length);
+          }
+          // Find a free edge position for this child
+          let placedChild = false;
+          for (let posIdx = 0; posIdx < edgePositions.length; posIdx++) {
+            if (used.has(posIdx)) continue;
+            const [er, ec, edge] = edgePositions[posIdx];
+            // Calculate top-left for the child square so it touches the parent
+            let childRow = er,
+              childCol = ec;
+            if (edge === "top") childRow = er - childSize + 1;
+            if (edge === "left") childCol = ec - childSize + 1;
+            // Check if the child square fits and is free
+            let canPlace = true;
+            for (let dr = 0; dr < childSize; dr++) {
+              for (let dc = 0; dc < childSize; dc++) {
+                const gr = childRow + dr,
+                  gc = childCol + dc;
+                if (grid[gr] && grid[gr][gc]) {
+                  canPlace = false;
+                  break;
+                }
+              }
+              if (!canPlace) break;
+            }
+            if (canPlace) {
+              used.add(posIdx);
+              if (child.children.length > 0) {
+                placeNode(child, grid, childRow, childCol, childSize, placed);
+              } else {
+                if (!grid[er]) grid[er] = [];
+                grid[er][ec] = { name: child.name, className: "parent" };
+              }
+              placedChild = true;
+              break;
+            }
+          }
+          // If not placed, fallback to any free spot (should be rare)
+          if (!placedChild) {
+            const spot = findFreeSpot(grid, childSize, childSize);
+            if (child.children.length > 0) {
+              placeNode(
+                child,
+                grid,
+                spot ? spot.row : 0,
+                spot ? spot.col : 0,
+                childSize,
+                placed
+              );
+            } else {
+              const leafRow = spot ? spot.row : 0;
+              const leafCol = spot ? spot.col : 0;
+              if (!grid[leafRow]) grid[leafRow] = [];
+              grid[leafRow][leafCol] = {
+                name: child.name,
+                className: "parent",
+              };
+            }
+          }
+        }
+      }
+
+      // Try to place a block of size (w,h) in the grid, return top-left position or null
+      function findFreeSpot(grid, w, h) {
+        const maxRows = grid.length;
+        const maxCols = Math.max(...grid.map((row) => row.length || 0));
+        for (let r = 0; r <= maxRows + 10; r++) {
+          for (let c = 0; c <= maxCols + 10; c++) {
+            let fits = true;
+            for (let dr = 0; dr < h; dr++) {
+              for (let dc = 0; dc < w; dc++) {
+                if (grid[r + dr] && grid[r + dr][c + dc]) {
+                  fits = false;
+                  break;
+                }
+              }
+              if (!fits) break;
+            }
+            if (fits) return { row: r, col: c };
+          }
+        }
+        return null;
+      }
+
+      // Find grid bounds for rendering
+      function getGridBounds(grid) {
+        let minRow = Infinity,
+          maxRow = -Infinity,
+          minCol = Infinity,
+          maxCol = -Infinity;
+        for (let r in grid) {
+          for (let c in grid[r]) {
+            r = parseInt(r);
+            c = parseInt(c);
+            if (r < minRow) minRow = r;
+            if (r > maxRow) maxRow = r;
+            if (c < minCol) minCol = c;
+            if (c > maxCol) maxCol = c;
+          }
+        }
+        return { minRow, maxRow, minCol, maxCol };
+      }
+
+      // Render the grid as an HTML table
+      function renderMatrix(grid) {
+        const { minRow, maxRow, minCol, maxCol } = getGridBounds(grid);
+        const height = maxRow - minRow + 1;
+        const width = maxCol - minCol + 1;
+        const size = Math.max(width, height);
+        const table = document.createElement("table");
+        for (let r = 0; r < size; r++) {
+          const tr = document.createElement("tr");
+          for (let c = 0; c < size; c++) {
+            const td = document.createElement("td");
+            const gr = minRow + r;
+            const gc = minCol + c;
+            if (grid[gr] && grid[gr][gc]) {
+              td.textContent = grid[gr][gc].name;
+              td.className = grid[gr][gc].className;
+            }
+            tr.appendChild(td);
+          }
+          table.appendChild(tr);
+        }
+        return table;
+      }
+
+      // Render the tree as an indented text view
+      function renderTreeText(node, prefix = "", isLast = true) {
+        let str = prefix;
+        if (prefix) {
+          str += isLast ? "└─ " : "├─ ";
+        }
+        str += node.name + "\n";
+        const newPrefix = prefix + (isLast ? "   " : "│  ");
+        node.children.forEach((child, idx) => {
+          str += renderTreeText(
+            child,
+            newPrefix,
+            idx === node.children.length - 1
+          );
+        });
+        return str;
+      }
+
+      // Main
+      const tree = generateRandomTree(150, 8); // Try 15 nodes, up to 8 children per node
+      const grid = [];
+      const placed = new Map();
+      const rootSize = minSquareSizeForChildren(tree.children.length);
+      // Place root in the middle of the grid
+      placeNode(tree, grid, 10, 10, rootSize, placed);
+      document.getElementById("matrix").appendChild(renderMatrix(grid));
+      document.getElementById(
+        "tree"
+      ).innerHTML = `<div class="tree-view">${renderTreeText(tree)}</div>`;
+    </script>
+  </body>
+</html>
