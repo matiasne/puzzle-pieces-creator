@@ -221,20 +221,16 @@
 
       // Render the grid as an HTML table
       function renderMatrix(grid) {
-        const { minRow, maxRow, minCol, maxCol } = getGridBounds(grid);
-        const height = maxRow - minRow + 1;
-        const width = maxCol - minCol + 1;
-        const size = Math.max(width, height);
+        const numRows = grid.length;
+        const numCols = grid.reduce((max, row) => Math.max(max, row.length), 0);
         const table = document.createElement("table");
-        for (let r = 0; r < size; r++) {
+        for (let r = 0; r < numRows; r++) {
           const tr = document.createElement("tr");
-          for (let c = 0; c < size; c++) {
+          for (let c = 0; c < numCols; c++) {
             const td = document.createElement("td");
-            const gr = minRow + r;
-            const gc = minCol + c;
-            if (grid[gr] && grid[gr][gc]) {
-              td.textContent = grid[gr][gc].name;
-              td.className = grid[gr][gc].className;
+            if (grid[r] && grid[r][c]) {
+              td.textContent = grid[r][c].name;
+              td.className = grid[r][c].className;
             }
             tr.appendChild(td);
           }
@@ -261,6 +257,30 @@
         return str;
       }
 
+      // Remove all completely empty rows from the grid
+      function removeEmptyRows(grid) {
+        return grid.filter(
+          (row) => Array.isArray(row) && row.some((cell) => cell !== undefined)
+        );
+      }
+
+      // Remove all completely empty columns from the grid
+      function removeEmptyCols(grid) {
+        if (!grid.length) return grid;
+        const numCols = Math.max(...grid.map((row) => row.length || 0));
+        // Find columns that have at least one piece
+        const colsWithPiece = [];
+        for (let c = 0; c < numCols; c++) {
+          if (grid.some((row) => row && row[c] !== undefined)) {
+            colsWithPiece.push(c);
+          }
+        }
+        // Build new grid with only those columns
+        return grid.map((row) =>
+          colsWithPiece.map((c) => (row ? row[c] : undefined))
+        );
+      }
+
       // Main
       const tree = generateRandomTree(150, 8); // Try 15 nodes, up to 8 children per node
       const grid = [];
@@ -268,7 +288,10 @@
       const rootSize = minSquareSizeForChildren(tree.children.length);
       // Place root in the middle of the grid
       placeNode(tree, grid, 10, 10, rootSize, placed);
-      document.getElementById("matrix").appendChild(renderMatrix(grid));
+      let cleanedGrid = removeEmptyRows(grid);
+      cleanedGrid = removeEmptyCols(cleanedGrid);
+      cleanedGrid = removeEmptyRows(cleanedGrid); // In case removing columns creates new empty rows
+      document.getElementById("matrix").appendChild(renderMatrix(cleanedGrid));
       document.getElementById(
         "tree"
       ).innerHTML = `<div class="tree-view">${renderTreeText(tree)}</div>`;
